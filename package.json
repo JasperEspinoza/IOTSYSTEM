@@ -4,6 +4,7 @@
   "description": "ESP32 Classroom IoT Environmental & Security Monitoring Web Dashboard",
   "main": "server.js",
   "scripts": {
+    "build": "node build.js",
     "start": "node server.js",
     "deploy:firebase": "firebase deploy --only hosting",
     "deploy:vercel": "vercel --prod"

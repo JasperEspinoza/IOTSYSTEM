@@ -1,6 +1,7 @@
 {
   "version": 2,
   "cleanUrls": true,
+  "buildCommand": "node build.js",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ],
