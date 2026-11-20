@@ -115,7 +115,13 @@
           <span id="audioStatusText" class="hidden sm:inline">Buzzer: On</span>
         </button>
 
-        <!-- Connectivity Pill -->
+        <!-- ESP32 Device Hardware Status Pill -->
+        <div id="deviceStatusPill" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs font-semibold shadow-sm transition-all">
+          <span id="deviceStatusDot" class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"></span>
+          <span id="deviceStatusText">ESP32: Offline</span>
+        </div>
+
+        <!-- Firebase Cloud Connectivity Pill -->
         <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 text-xs shadow-sm">
           <span id="cloudStatusDot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
           <span id="cloudStatusText" class="text-slate-700 dark:text-slate-300 font-medium">Connecting...</span>
@@ -155,23 +161,23 @@
     </div>
   </div>
 
-  <!-- Device Connected Toast Banner (Shown briefly when ESP32 connects) -->
-  <div id="deviceConnectedBanner" class="fixed top-5 right-5 z-50 transform translate-y-[-150%] opacity-0 transition-all duration-500 ease-out pointer-events-auto max-w-sm w-full cursor-pointer">
-    <div class="rounded-2xl bg-white/95 dark:bg-slate-900/95 border-2 border-emerald-500/60 p-4 shadow-2xl shadow-emerald-500/30 backdrop-blur-md flex items-start gap-3 hover:shadow-emerald-500/40 transition-all">
-      <div class="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0 mt-0.5">
-        <i data-lucide="wifi" class="w-5 h-5 animate-pulse"></i>
+  <!-- Device Connection / Disconnection Toast Banner -->
+  <div id="deviceStateToast" class="fixed top-5 right-5 z-50 transform translate-y-[-150%] opacity-0 transition-all duration-500 ease-out pointer-events-auto max-w-sm w-full cursor-pointer">
+    <div id="deviceStateToastCard" class="rounded-2xl bg-white/95 dark:bg-slate-900/95 border-2 border-emerald-500/60 p-4 shadow-2xl shadow-emerald-500/30 backdrop-blur-md flex items-start gap-3 hover:scale-[1.02] transition-all">
+      <div id="deviceStateToastIconBox" class="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0 mt-0.5">
+        <i id="deviceStateToastIcon" data-lucide="wifi" class="w-5 h-5 animate-pulse"></i>
       </div>
       <div class="flex-1 min-w-0">
         <div class="flex items-center justify-between gap-2">
-          <h4 class="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-300 flex items-center gap-1.5">
-            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> Device Connected
+          <h4 id="deviceStateToastHeader" class="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-300 flex items-center gap-1.5">
+            <span id="deviceStateToastDot" class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span> Device Connected
           </h4>
-          <button id="closeDeviceBannerBtn" title="Dismiss" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition p-1">
+          <button id="closeDeviceToastBtn" title="Dismiss" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition p-1">
             <i data-lucide="x" class="w-3.5 h-3.5"></i>
           </button>
         </div>
-        <p class="text-xs text-slate-900 dark:text-slate-100 font-bold mt-1" id="deviceConnectedText">ESP32 Classroom Node is Online</p>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1 font-mono">
+        <p class="text-xs text-slate-900 dark:text-slate-100 font-bold mt-1" id="deviceStateToastTitle">ESP32 Classroom Node is Online</p>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1 font-mono" id="deviceStateToastSubtitle">
           <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-500"></i> Connected to Firebase Realtime Database
         </p>
       </div>
@@ -942,7 +948,7 @@
       if (audioAlertEnabled) {
         audioStatusText.innerText = "Buzzer: On";
         toggleAudioBtn.classList.remove('opacity-50');
-        playConnectedBeep(); // Test chirp immediately confirms audio is active
+        playConnectedSound(); // Test chime immediately confirms audio is active
       } else {
         audioStatusText.innerText = "Buzzer: Muted";
         toggleAudioBtn.classList.add('opacity-50');
@@ -1052,7 +1058,8 @@
           if (val && lastKnownBootTime && val !== lastKnownBootTime) {
             lastKnownBootTime = val;
             isDeviceConnected = true;
-            showDeviceConnectedBanner("ESP32 Classroom Node Connected / Rebooted!");
+            updateDeviceStatusPill(true);
+            showDeviceStateToast(true, "ESP32 Classroom Node Connected / Rebooted!", "Fresh connection heartbeat received");
             addLogEntry("SYSTEM", "ESP32 sent fresh connection heartbeat to Firebase.");
           } else if (val && !lastKnownBootTime) {
             lastKnownBootTime = val;
@@ -1115,17 +1122,17 @@
       window.addEventListener(evt, ensureAudioUnlocked, { passive: true });
     });
 
-    // Audible Hardware-Style Connection Beep (Ascending Dual Beep: 880Hz -> 1320Hz)
-    function playConnectedBeep() {
+    // --- Audio Synthesis for Connected / Disconnected Events ---
+    function playConnectedSound() {
       if (!audioAlertEnabled) return;
 
-      const triggerBeepSound = () => {
+      const triggerTone = () => {
         try {
           const ctx = audioContext;
           if (!ctx) return;
           const t = ctx.currentTime;
 
-          // Beep 1: 880 Hz (A5), crisp triangle wave
+          // Ascending Dual Chime: 880 Hz (A5) -> 1318.5 Hz (E6)
           const osc1 = ctx.createOscillator();
           const gain1 = ctx.createGain();
           osc1.type = 'triangle';
@@ -1137,82 +1144,166 @@
           osc1.start(t);
           osc1.stop(t + 0.12);
 
-          // Beep 2: 1320 Hz (E6), higher pitch confirmation chime
           const osc2 = ctx.createOscillator();
           const gain2 = ctx.createGain();
           osc2.type = 'triangle';
-          osc2.frequency.setValueAtTime(1320, t + 0.14);
+          osc2.frequency.setValueAtTime(1318.5, t + 0.14);
           gain2.gain.setValueAtTime(0.38, t + 0.14);
-          gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.38);
+          gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.40);
           osc2.connect(gain2);
           gain2.connect(ctx.destination);
           osc2.start(t + 0.14);
-          osc2.stop(t + 0.38);
+          osc2.stop(t + 0.40);
         } catch (e) {
-          console.warn("Audio playback error:", e);
+          console.warn("Connected audio error:", e);
         }
       };
 
-      try {
-        if (!audioContext) {
-          audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        if (audioContext.state === 'suspended') {
-          audioContext.resume().then(() => {
-            triggerBeepSound();
-          }).catch(err => {
-            console.warn("Autoplay policy blocked audio:", err);
-          });
-        } else {
-          triggerBeepSound();
-        }
-      } catch (e) {
-        console.warn("AudioContext error:", e);
+      ensureAudioUnlocked();
+      if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume().then(triggerTone).catch(() => {});
+      } else {
+        triggerTone();
       }
     }
 
-    function showDeviceConnectedBanner(customMsg = "ESP32 Classroom Node is Online") {
-      const banner = document.getElementById('deviceConnectedBanner');
-      const textEl = document.getElementById('deviceConnectedText');
-      if (textEl) textEl.innerText = customMsg;
+    function playDisconnectedSound() {
+      if (!audioAlertEnabled) return;
+
+      const triggerTone = () => {
+        try {
+          const ctx = audioContext;
+          if (!ctx) return;
+          const t = ctx.currentTime;
+
+          // Descending Alert Chime: 659.25 Hz (E5) -> 440 Hz (A4)
+          const osc1 = ctx.createOscillator();
+          const gain1 = ctx.createGain();
+          osc1.type = 'sawtooth';
+          osc1.frequency.setValueAtTime(659.25, t);
+          gain1.gain.setValueAtTime(0.32, t);
+          gain1.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+          osc1.connect(gain1);
+          gain1.connect(ctx.destination);
+          osc1.start(t);
+          osc1.stop(t + 0.16);
+
+          const osc2 = ctx.createOscillator();
+          const gain2 = ctx.createGain();
+          osc2.type = 'sawtooth';
+          osc2.frequency.setValueAtTime(440, t + 0.18);
+          gain2.gain.setValueAtTime(0.35, t + 0.18);
+          gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.48);
+          osc2.connect(gain2);
+          gain2.connect(ctx.destination);
+          osc2.start(t + 0.18);
+          osc2.stop(t + 0.48);
+        } catch (e) {
+          console.warn("Disconnected audio error:", e);
+        }
+      };
+
+      ensureAudioUnlocked();
+      if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume().then(triggerTone).catch(() => {});
+      } else {
+        triggerTone();
+      }
+    }
+
+    // --- Dynamic Status Pill & Toast Notification Handlers ---
+    function updateDeviceStatusPill(isOnline) {
+      const pill = document.getElementById('deviceStatusPill');
+      const dot = document.getElementById('deviceStatusDot');
+      const text = document.getElementById('deviceStatusText');
+      if (!pill || !dot || !text) return;
+
+      if (isOnline) {
+        pill.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-semibold shadow-sm transition-all";
+        dot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping";
+        text.innerText = "ESP32: Online";
+      } else {
+        pill.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs font-semibold shadow-sm transition-all";
+        dot.className = "w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse";
+        text.innerText = "ESP32: Disconnected";
+      }
+    }
+
+    let deviceToastTimer = null;
+
+    function showDeviceStateToast(isConnected, customTitle, customSubtitle) {
+      const banner = document.getElementById('deviceStateToast');
+      const card = document.getElementById('deviceStateToastCard');
+      const iconBox = document.getElementById('deviceStateToastIconBox');
+      const icon = document.getElementById('deviceStateToastIcon');
+      const header = document.getElementById('deviceStateToastHeader');
+      const title = document.getElementById('deviceStateToastTitle');
+      const subtitle = document.getElementById('deviceStateToastSubtitle');
+
       if (!banner) return;
+
+      if (isConnected) {
+        if (card) card.className = "rounded-2xl bg-white/95 dark:bg-slate-900/95 border-2 border-emerald-500/60 p-4 shadow-2xl shadow-emerald-500/30 backdrop-blur-md flex items-start gap-3 hover:scale-[1.02] transition-all";
+        if (iconBox) iconBox.className = "p-2.5 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0 mt-0.5";
+        if (icon) icon.setAttribute('data-lucide', 'wifi');
+        if (header) {
+          header.className = "text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-300 flex items-center gap-1.5";
+          header.innerHTML = `<span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span> Device Connected`;
+        }
+        if (title) title.innerText = customTitle || "ESP32 Classroom Node is Online";
+        if (subtitle) subtitle.innerHTML = `<i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-500"></i> ${customSubtitle || "Connected to Firebase Realtime Database"}`;
+        playConnectedSound();
+      } else {
+        if (card) card.className = "rounded-2xl bg-white/95 dark:bg-slate-900/95 border-2 border-rose-500/70 p-4 shadow-2xl shadow-rose-500/30 backdrop-blur-md flex items-start gap-3 hover:scale-[1.02] transition-all";
+        if (iconBox) iconBox.className = "p-2.5 rounded-xl bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 shrink-0 mt-0.5";
+        if (icon) icon.setAttribute('data-lucide', 'wifi-off');
+        if (header) {
+          header.className = "text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1.5";
+          header.innerHTML = `<span class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"></span> Device Disconnected`;
+        }
+        if (title) title.innerText = customTitle || "ESP32 Node Signal Lost";
+        if (subtitle) subtitle.innerHTML = `<i data-lucide="alert-triangle" class="w-3.5 h-3.5 text-rose-500"></i> ${customSubtitle || "No telemetry received for 6+ seconds"}`;
+        playDisconnectedSound();
+      }
 
       banner.classList.remove('translate-y-[-150%]', 'opacity-0');
       banner.classList.add('translate-y-0', 'opacity-100');
       lucide.createIcons();
-      playConnectedBeep();
 
-      if (deviceBannerTimer) clearTimeout(deviceBannerTimer);
-      deviceBannerTimer = setTimeout(() => {
-        hideDeviceConnectedBanner();
+      if (deviceToastTimer) clearTimeout(deviceToastTimer);
+      deviceToastTimer = setTimeout(() => {
+        hideDeviceStateToast();
       }, 5000); // Display for 5 seconds
     }
 
-    function hideDeviceConnectedBanner() {
-      const banner = document.getElementById('deviceConnectedBanner');
+    function hideDeviceStateToast() {
+      const banner = document.getElementById('deviceStateToast');
       if (banner) {
         banner.classList.remove('translate-y-0', 'opacity-100');
         banner.classList.add('translate-y-[-150%]', 'opacity-0');
       }
     }
 
-    document.getElementById('closeDeviceBannerBtn')?.addEventListener('click', (e) => {
+    document.getElementById('closeDeviceToastBtn')?.addEventListener('click', (e) => {
       e.stopPropagation();
-      hideDeviceConnectedBanner();
+      hideDeviceStateToast();
     });
 
-    document.getElementById('deviceConnectedBanner')?.addEventListener('click', () => {
-      playConnectedBeep();
+    document.getElementById('deviceStateToast')?.addEventListener('click', () => {
+      if (isDeviceConnected) {
+        playConnectedSound();
+      } else {
+        playDisconnectedSound();
+      }
     });
 
-    // Heartbeat monitor: if no telemetry received for 6.5 seconds, mark as offline/idle
+    // Heartbeat monitor: if no telemetry received for 6.5 seconds, trigger Disconnection alert
     setInterval(() => {
       if (isDeviceConnected && lastDataReceivedTime && (Date.now() - lastDataReceivedTime > 6500)) {
         isDeviceConnected = false;
-        const txt = document.getElementById('cloudStatusText');
-        const dot = document.getElementById('cloudStatusDot');
-        if (txt) txt.innerText = "Device Idle / Offline";
-        if (dot) dot.className = "w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-500";
+        updateDeviceStatusPill(false);
+        showDeviceStateToast(false, "ESP32 Device Disconnected!", "Telemetry stream timed out (>6.5s). Waiting for signal...");
+        addLogEntry("WARNING", "ESP32 Device Disconnected: Inactivity timeout (>6.5s)", "--", "--", "WARNING");
       }
     }, 2000);
 
@@ -1246,10 +1337,11 @@
       if (isFirstOrReconnect || isFreshBoot) {
         isDeviceConnected = true;
         lastKnownBootTime = bootTime || lastKnownBootTime;
+        updateDeviceStatusPill(true);
         const msg = isFreshBoot 
           ? "ESP32 Classroom Node Rebooted & Connected!" 
           : "ESP32 IoT Node Connected to Firebase!";
-        showDeviceConnectedBanner(msg);
+        showDeviceStateToast(true, msg, "Realtime telemetry stream established");
         addLogEntry("SYSTEM", msg + " (Realtime telemetry stream active)");
       } else if (bootTime) {
         lastKnownBootTime = bootTime;
@@ -1632,11 +1724,18 @@
         demoBtnText.innerText = "Demo Mode";
         demoBtn.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-slate-800 text-cyan-600 dark:text-cyan-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition border border-cyan-500/40 dark:border-cyan-800/60 shadow-sm";
         addLogEntry("INFO", "Demo simulation stopped.");
+        isDeviceConnected = false;
+        updateDeviceStatusPill(false);
+        showDeviceStateToast(false, "Demo Mode: Simulated ESP32 Disconnected", "Simulated telemetry stream terminated.");
+        playDisconnectedSound();
       } else {
         demoBtnText.innerText = "Stop Demo";
         demoBtn.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-cyan-600/30 text-cyan-700 dark:text-cyan-200 border border-cyan-400 animate-pulse shadow-sm";
         addLogEntry("INFO", "Demo simulation started (Generating simulated ESP32 sensor stream)...");
-        showDeviceConnectedBanner("Demo Mode: Simulated ESP32 Connected!");
+        isDeviceConnected = true;
+        updateDeviceStatusPill(true);
+        showDeviceStateToast(true, "Demo Mode: Simulated ESP32 Connected!", "Streaming simulated environmental telemetry");
+        playConnectedSound();
 
         demoInterval = setInterval(() => {
           demoStep++;
