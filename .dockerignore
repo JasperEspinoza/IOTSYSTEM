@@ -1,0 +1,9 @@
+node_modules
+.git
+.firebase
+.firebaserc
+esp32_iot_system
+*.ino
+*.bat
+testing
+.DS_Store

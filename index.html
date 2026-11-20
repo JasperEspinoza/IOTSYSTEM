@@ -1,0 +1,1678 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Classroom IoT Environmental & Security Monitor</title>
+  
+  <!-- Prevent FOUC (Flash of Unstyled Content) for Light/Dark Mode -->
+  <script>
+    (function() {
+      const savedTheme = localStorage.getItem('theme');
+      if (savedTheme === 'light') {
+        document.documentElement.classList.remove('dark');
+      } else {
+        document.documentElement.classList.add('dark');
+      }
+    })();
+  </script>
+
+  <!-- Tailwind CSS CDN with dark mode configured via class -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class'
+    };
+  </script>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Firebase App & Services (v9 compat for standalone browser use) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <!-- Optional Local Credentials (ignored by Git for security) -->
+  <script src="config.local.js" onerror="/* config.local.js not found in production */"></script>
+
+  <style>
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.15); opacity: 0.4; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .motion-pulse {
+      animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    .led-glow-green {
+      box-shadow: 0 0 16px rgba(34, 197, 94, 0.85), inset 0 0 6px rgba(255, 255, 255, 0.9);
+    }
+    .led-glow-red {
+      box-shadow: 0 0 16px rgba(239, 68, 68, 0.95), inset 0 0 6px rgba(255, 255, 255, 0.9);
+    }
+    .led-glow-amber {
+      box-shadow: 0 0 16px rgba(245, 158, 11, 0.85), inset 0 0 6px rgba(255, 255, 255, 0.9);
+    }
+    /* Custom adaptive scrollbar */
+    ::-webkit-scrollbar {
+      width: 7px;
+      height: 7px;
+    }
+    .dark ::-webkit-scrollbar-track {
+      background: #090d16;
+    }
+    .dark ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 min-h-screen font-sans selection:bg-indigo-500 selection:text-white transition-colors duration-200">
+
+  <!-- Top Navigation Bar -->
+  <header class="border-b border-slate-200 dark:border-slate-800 bg-white/85 dark:bg-slate-900/80 backdrop-blur sticky top-0 z-40 px-4 lg:px-8 py-3.5 transition-colors duration-200 shadow-sm">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="p-2.5 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 text-white shadow-lg shadow-indigo-500/25">
+          <i data-lucide="cpu" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+            ESP32 Classroom Monitor
+            <span class="text-xs px-2 py-0.5 rounded-full font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30">IoT Live</span>
+          </h1>
+          <p class="text-xs text-slate-500 dark:text-slate-400">Classroom Security & Temperature Early-Warning System</p>
+        </div>
+      </div>
+
+      <!-- Live Controls & Status Center -->
+      <div class="flex items-center flex-wrap gap-2 sm:gap-3">
+        <!-- Light / Dark Mode Toggle Button -->
+        <button id="themeToggleBtn" title="Toggle Light / Dark Mode" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition border border-slate-300 dark:border-slate-700 shadow-sm">
+          <i id="themeToggleIcon" data-lucide="sun" class="w-4 h-4 text-amber-500"></i>
+          <span id="themeToggleText" class="hidden sm:inline">Light Mode</span>
+        </button>
+
+        <!-- Demo Mode Toggle -->
+        <button id="demoBtn" title="Test dashboard with simulated ESP32 sensor telemetry" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-slate-800 text-cyan-600 dark:text-cyan-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition border border-cyan-500/40 dark:border-cyan-800/60 shadow-sm">
+          <i data-lucide="play-circle" class="w-4 h-4 text-cyan-500 dark:text-cyan-400"></i>
+          <span id="demoBtnText">Demo Mode</span>
+        </button>
+
+        <!-- Audio Alarm Toggle -->
+        <button id="toggleAudioBtn" title="Toggle buzzer sound" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition border border-slate-300 dark:border-slate-700 shadow-sm">
+          <i id="audioIcon" data-lucide="volume-2" class="w-4 h-4"></i>
+          <span id="audioStatusText" class="hidden sm:inline">Buzzer: On</span>
+        </button>
+
+        <!-- Connectivity Pill -->
+        <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/90 border border-slate-300 dark:border-slate-700 text-xs shadow-sm">
+          <span id="cloudStatusDot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
+          <span id="cloudStatusText" class="text-slate-700 dark:text-slate-300 font-medium">Connecting...</span>
+        </div>
+
+        <!-- Settings Modal Trigger -->
+        <button id="configToggleBtn" title="Settings & Dynamic Threshold" class="p-2 rounded-lg bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 shadow-sm transition">
+          <i data-lucide="settings" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Diagnostic & Connection Health Bar -->
+  <div id="diagnosticBar" class="bg-white/90 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 py-2 text-xs transition-colors duration-200">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2">
+        <span class="text-slate-500 dark:text-slate-400 font-semibold flex items-center gap-1.5">
+          <i data-lucide="radio" class="w-3.5 h-3.5 text-cyan-500 dark:text-cyan-400"></i> Sync Engine:
+        </span>
+        <span id="engineStatusBadge" class="px-2 py-0.5 rounded font-mono font-medium bg-amber-500/10 text-amber-600 dark:text-amber-300 border border-amber-500/30">
+          Initializing...
+        </span>
+        <span id="lastReceivedTimeBadge" class="text-slate-500 dark:text-slate-400 hidden sm:inline">
+          Last packet: <strong class="text-slate-800 dark:text-slate-200" id="lastPacketTime">None</strong>
+        </span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-slate-500 dark:text-slate-400 hidden md:inline">Raw Data:</span>
+        <code id="rawPayloadDisplay" class="bg-slate-100 dark:bg-slate-950 text-indigo-700 dark:text-indigo-300 px-2.5 py-1 rounded border border-slate-300 dark:border-slate-800 max-w-xs sm:max-w-md truncate block font-mono text-[11px]">
+          Awaiting Firebase response...
+        </code>
+        <button id="testDirectFetchBtn" title="Test direct HTTP GET to Firebase RTDB" class="px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 font-medium transition flex items-center gap-1">
+          <i data-lucide="refresh-cw" class="w-3 h-3"></i> Test Read
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Device Connected Toast Banner (Shown briefly when ESP32 connects) -->
+  <div id="deviceConnectedBanner" class="fixed top-5 right-5 z-50 transform translate-y-[-150%] opacity-0 transition-all duration-500 ease-out pointer-events-auto max-w-sm w-full cursor-pointer">
+    <div class="rounded-2xl bg-white/95 dark:bg-slate-900/95 border-2 border-emerald-500/60 p-4 shadow-2xl shadow-emerald-500/30 backdrop-blur-md flex items-start gap-3 hover:shadow-emerald-500/40 transition-all">
+      <div class="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0 mt-0.5">
+        <i data-lucide="wifi" class="w-5 h-5 animate-pulse"></i>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center justify-between gap-2">
+          <h4 class="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-300 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> Device Connected
+          </h4>
+          <button id="closeDeviceBannerBtn" title="Dismiss" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition p-1">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+        <p class="text-xs text-slate-900 dark:text-slate-100 font-bold mt-1" id="deviceConnectedText">ESP32 Classroom Node is Online</p>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1 font-mono">
+          <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-500"></i> Connected to Firebase Realtime Database
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Anonymous Auth Setup Hint Banner (Shown only when auth/configuration-not-found occurs) -->
+  <div id="authConfigHintBanner" class="hidden bg-amber-500/10 border-b border-amber-500/30 px-4 py-3 text-xs text-amber-800 dark:text-amber-200">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2.5">
+        <i data-lucide="alert-circle" class="w-4 h-4 text-amber-500 shrink-0"></i>
+        <div>
+          <strong class="text-amber-700 dark:text-amber-300 font-semibold">Action Required in Firebase:</strong>
+          Anonymous Authentication is not enabled yet in your Firebase Console.
+          <span class="text-amber-700/90 dark:text-amber-400/90 hidden sm:inline">Go to <strong>Authentication &gt; Sign-in method &gt; Anonymous &gt; Enable</strong>.</span>
+        </div>
+      </div>
+      <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer" class="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold transition shrink-0">
+        Open Firebase Console &rarr;
+      </a>
+    </div>
+  </div>
+
+  <!-- High Temperature Warning Alert Banner (Hidden by default) -->
+  <div id="highTempBanner" class="hidden bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 text-white px-4 py-3 shadow-lg transition-all animate-bounce">
+    <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <i data-lucide="alert-triangle" class="w-6 h-6 shrink-0"></i>
+        <div>
+          <span class="font-bold tracking-wide uppercase text-sm">CRITICAL ALERT: HIGH TEMPERATURE DETECTED!</span>
+          <p class="text-xs opacity-95">Classroom temperature has surpassed the threshold of <span id="bannerThresholdVal" class="font-bold underline">35.0</span> °C. Fire/Overheat alarm active.</p>
+        </div>
+      </div>
+      <div class="text-xs bg-black/30 px-3 py-1 rounded font-mono font-bold" id="bannerTempDisplay">
+        35.0°C
+      </div>
+    </div>
+  </div>
+
+  <main class="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-6">
+
+    <!-- Config Modal (Collapsible) -->
+    <div id="configModal" class="hidden rounded-2xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700/80 p-5 shadow-2xl transition-all">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+        <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-200 flex items-center gap-2">
+          <i data-lucide="database" class="w-4 h-4 text-indigo-500"></i> Settings & Dynamic Threshold Control
+        </h3>
+        <button id="closeConfigBtn" class="text-slate-400 hover:text-slate-700 dark:hover:text-white transition">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Database URL</label>
+          <input type="text" id="cfgDbUrl" class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">API Key</label>
+          <input type="text" id="cfgApiKey" class="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-900 dark:text-slate-200 focus:outline-none focus:border-indigo-500" />
+        </div>
+      </div>
+
+      <!-- Remote Threshold Setting in Modal -->
+      <div class="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800/80">
+        <div class="flex items-center justify-between mb-2">
+          <label class="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+            <i data-lucide="sliders" class="w-3.5 h-3.5 text-amber-500"></i> High Temperature Alarm Threshold (ESP32 Sync):
+          </label>
+          <span id="thresholdValDisplay" class="font-mono text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded border border-amber-500/30">35.0 °C</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <input type="range" id="thresholdSlider" min="20" max="50" step="0.5" value="35" class="w-full h-2 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500" />
+        </div>
+        <div class="flex justify-between text-[11px] text-slate-400 mt-1">
+          <span>20.0 °C (Sensitive)</span>
+          <span class="text-slate-500 dark:text-slate-400">Syncs immediately to Firebase <code>/control/temp_threshold</code></span>
+          <span>50.0 °C (Industrial)</span>
+        </div>
+      </div>
+
+      <div class="mt-5 flex justify-end gap-2">
+        <button id="saveConfigBtn" class="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition shadow-md flex items-center gap-1.5">
+          <i data-lucide="check" class="w-3.5 h-3.5"></i> Save & Apply
+        </button>
+      </div>
+    </div>
+
+    <!-- Top Metrics Row -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      
+      <!-- Temperature Card -->
+      <div class="relative overflow-hidden rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm dark:shadow-lg transition-all">
+        <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+          <span class="text-xs uppercase font-bold tracking-wider">Temperature</span>
+          <div class="p-2 rounded-lg bg-orange-500/10 text-orange-500 dark:text-orange-400">
+            <i data-lucide="thermometer" class="w-5 h-5"></i>
+          </div>
+        </div>
+        <div class="flex items-baseline gap-2 mt-2">
+          <span id="tempValue" class="text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">--</span>
+          <span class="text-lg font-medium text-slate-500 dark:text-slate-400">°C</span>
+        </div>
+
+        <!-- Progress bar for temp -->
+        <div class="mt-4">
+          <div class="flex justify-between text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+            <span>Range: 0 - 50 °C</span>
+            <span id="tempAlertBadge" class="font-medium text-emerald-600 dark:text-emerald-400">Normal</span>
+          </div>
+          <div class="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+            <div id="tempProgressBar" class="h-full bg-gradient-to-r from-cyan-400 via-amber-400 to-rose-500 transition-all duration-500" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <!-- Working Threshold Display with Quick Adjust Button -->
+        <div class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
+          <div class="flex items-center gap-1.5">
+            <span class="text-[11px] text-slate-500 dark:text-slate-400">Alarm:</span>
+            <span id="cardThresholdVal" class="font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30 text-[11px]">35.0 °C</span>
+            <button id="quickEditThresholdBtn" title="Quick edit temperature threshold" class="p-1 rounded text-slate-400 hover:text-amber-500 transition">
+              <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
+          <span id="tempFahrenheit" class="font-mono text-slate-500 dark:text-slate-400 text-xs">-- °F</span>
+        </div>
+
+        <!-- Collapsible Inline Threshold Quick Editor -->
+        <div id="inlineThresholdContainer" class="hidden mt-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 text-xs">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[11px] font-semibold text-slate-700 dark:text-slate-300">Adjust Threshold:</span>
+            <span id="inlineThresholdDisplay" class="font-mono font-bold text-amber-600 dark:text-amber-400">35.0 °C</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="threshStepDownBtn" title="Decrease 0.5°C" class="w-6 h-6 flex items-center justify-center rounded bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 transition">-</button>
+            <input type="range" id="inlineThresholdSlider" min="20" max="50" step="0.5" value="35" class="w-full h-1.5 bg-slate-300 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-amber-500" />
+            <button id="threshStepUpBtn" title="Increase 0.5°C" class="w-6 h-6 flex items-center justify-center rounded bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 transition">+</button>
+          </div>
+          <div class="flex justify-between items-center mt-1 text-[10px] text-slate-400">
+            <span>20°C</span>
+            <span id="thresholdSyncFeedback" class="text-emerald-500 font-medium flex items-center gap-1">
+              <i data-lucide="check" class="w-3 h-3"></i> In Sync
+            </span>
+            <span>50°C</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Humidity Card -->
+      <div class="relative overflow-hidden rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm dark:shadow-lg transition-all">
+        <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+          <span class="text-xs uppercase font-bold tracking-wider">Relative Humidity</span>
+          <div class="p-2 rounded-lg bg-sky-500/10 text-sky-500 dark:text-sky-400">
+            <i data-lucide="droplets" class="w-5 h-5"></i>
+          </div>
+        </div>
+        <div class="flex items-baseline gap-2 mt-2">
+          <span id="humidityValue" class="text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">--</span>
+          <span class="text-lg font-medium text-slate-500 dark:text-slate-400">%</span>
+        </div>
+        <div class="mt-4">
+          <div class="flex justify-between text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+            <span>Comfort Level</span>
+            <span id="humidityComfortText" class="font-medium text-sky-600 dark:text-sky-400">Moderate</span>
+          </div>
+          <div class="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+            <div id="humidityProgressBar" class="h-full bg-gradient-to-r from-sky-400 to-blue-500 transition-all duration-500" style="width: 0%"></div>
+          </div>
+        </div>
+        <div class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+          <span>Sensor: <strong class="text-slate-700 dark:text-slate-300">DHT11 (Pin 14)</strong></span>
+          <span class="font-mono">2s Sampling</span>
+        </div>
+      </div>
+
+      <!-- Motion Sensor Card -->
+      <div class="relative overflow-hidden rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm dark:shadow-lg transition-all">
+        <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+          <span class="text-xs uppercase font-bold tracking-wider">PIR Motion Status</span>
+          <div id="motionIconBox" class="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors">
+            <i data-lucide="activity" class="w-5 h-5"></i>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center gap-3">
+          <div id="motionIndicatorDot" class="w-4 h-4 rounded-full bg-slate-400 dark:bg-slate-600 transition-all"></div>
+          <div>
+            <span id="motionStatusText" class="text-2xl font-bold text-slate-800 dark:text-slate-300">No Motion</span>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">PIR Sensor (Pin 27)</p>
+          </div>
+        </div>
+        <div class="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800/80 text-[11px] text-slate-500 dark:text-slate-400 space-y-1">
+          <div class="flex justify-between items-center">
+            <span>Last Activity:</span>
+            <span id="lastMotionTime" class="font-mono text-slate-800 dark:text-slate-200">Waiting for event...</span>
+          </div>
+          <div class="flex justify-between items-center text-slate-400 dark:text-slate-500">
+            <span>Firmware Hold:</span>
+            <span>4000 ms</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ESP32 Actuators / Hardware State -->
+      <div class="relative overflow-hidden rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm dark:shadow-lg transition-all">
+        <div class="flex items-center justify-between text-slate-500 dark:text-slate-400 mb-2">
+          <span class="text-xs uppercase font-bold tracking-wider">ESP32 Actuators</span>
+          <div class="p-2 rounded-lg bg-indigo-500/10 text-indigo-500 dark:text-indigo-400">
+            <i data-lucide="circuit-board" class="w-5 h-5"></i>
+          </div>
+        </div>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-3">Live Physical Pin Status Mirror</p>
+        
+        <div class="space-y-2.5">
+          <!-- Green LED -->
+          <div class="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800/60">
+            <div class="flex items-center gap-2.5">
+              <span id="greenLedLight" class="w-3.5 h-3.5 rounded-full bg-emerald-500 led-glow-green transition-all"></span>
+              <span class="text-xs font-semibold text-slate-800 dark:text-slate-200">Green LED (GPIO 22)</span>
+            </div>
+            <span id="greenLedLabel" class="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-300">ACTIVE</span>
+          </div>
+
+          <!-- Red LED -->
+          <div class="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800/60">
+            <div class="flex items-center gap-2.5">
+              <span id="redLedLight" class="w-3.5 h-3.5 rounded-full bg-slate-300 dark:bg-slate-700 transition-all"></span>
+              <span class="text-xs font-semibold text-slate-800 dark:text-slate-200">Red LED (GPIO 23)</span>
+            </div>
+            <span id="redLedLabel" class="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400">OFF</span>
+          </div>
+
+          <!-- Buzzer -->
+          <div class="flex items-center justify-between p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800/60">
+            <div class="flex items-center gap-2.5">
+              <span id="buzzerLight" class="w-3.5 h-3.5 rounded-full bg-slate-300 dark:bg-slate-700 transition-all"></span>
+              <span class="text-xs font-semibold text-slate-800 dark:text-slate-200">Buzzer (GPIO 18)</span>
+            </div>
+            <span id="buzzerLabel" class="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400">SILENT</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Analytics & Peak Stats Bar -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-white/80 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800/80 rounded-xl p-3 text-xs shadow-sm transition-all">
+      <div class="flex items-center gap-2.5 px-2">
+        <i data-lucide="arrow-down-circle" class="w-4 h-4 text-cyan-500 dark:text-cyan-400"></i>
+        <div>
+          <span class="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-semibold">Min Temp</span>
+          <span id="statMinTemp" class="font-bold font-mono text-slate-800 dark:text-slate-200">-- °C</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-2.5 px-2 border-l border-slate-200 dark:border-slate-800">
+        <i data-lucide="arrow-up-circle" class="w-4 h-4 text-orange-500 dark:text-orange-400"></i>
+        <div>
+          <span class="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-semibold">Max Temp</span>
+          <span id="statMaxTemp" class="font-bold font-mono text-slate-800 dark:text-slate-200">-- °C</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-2.5 px-2 border-l border-slate-200 dark:border-slate-800">
+        <i data-lucide="gauge" class="w-4 h-4 text-sky-500 dark:text-sky-400"></i>
+        <div>
+          <span class="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-semibold">Avg Humidity</span>
+          <span id="statAvgHum" class="font-bold font-mono text-slate-800 dark:text-slate-200">-- %</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-2.5 px-2 border-l border-slate-200 dark:border-slate-800">
+        <i data-lucide="footprints" class="w-4 h-4 text-amber-500 dark:text-amber-400"></i>
+        <div>
+          <span class="text-slate-500 dark:text-slate-400 block text-[10px] uppercase font-semibold">Motion Events</span>
+          <span id="statMotionCount" class="font-bold font-mono text-slate-800 dark:text-slate-200">0 logged</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Middle Row: Chart & Diagnostics -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- Chart Card (2 Cols) -->
+      <div class="lg:col-span-2 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm dark:shadow-lg flex flex-col justify-between transition-all">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <i data-lucide="line-chart" class="w-5 h-5 text-indigo-500 dark:text-indigo-400"></i> Environmental Real-Time Trends
+            </h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Streaming DHT11 sensor points updated every 2000 ms</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="clearChartBtn" class="px-3 py-1 text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg border border-slate-300 dark:border-slate-700 transition">
+              Reset Chart
+            </button>
+          </div>
+        </div>
+
+        <div class="relative w-full h-72">
+          <canvas id="realtimeChart"></canvas>
+        </div>
+
+        <div class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-3 border-t border-slate-100 dark:border-slate-800/80 mt-3">
+          <div class="flex items-center flex-wrap gap-4">
+            <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-orange-400"></span> Temperature (°C)</span>
+            <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-sky-400"></span> Humidity (%)</span>
+            <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 border-t-2 border-dashed border-rose-500"></span> Threshold (<span id="chartThresholdLegend">35.0</span>°C)</span>
+          </div>
+          <span id="chartPointsCount">0 samples recorded</span>
+        </div>
+      </div>
+
+      <!-- System Diagnostic & Specs (1 Col) -->
+      <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm dark:shadow-lg flex flex-col justify-between transition-all">
+        <div>
+          <h2 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-1">
+            <i data-lucide="info" class="w-5 h-5 text-indigo-500 dark:text-indigo-400"></i> ESP32 IoT Node Specs
+          </h2>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Firmware & Network parameters</p>
+
+          <div class="space-y-3 text-xs">
+            <div class="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800">
+              <span class="text-slate-500 dark:text-slate-400">Wi-Fi SSID:</span>
+              <span class="font-mono text-slate-800 dark:text-slate-200 font-semibold">Starlink2.4G</span>
+            </div>
+            <div class="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800">
+              <span class="text-slate-500 dark:text-slate-400">Firebase Node:</span>
+              <span class="font-mono text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-950 px-2 py-0.5 rounded text-[11px]">/sensor/*</span>
+            </div>
+            <div class="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800">
+              <span class="text-slate-500 dark:text-slate-400">Control Node:</span>
+              <span class="font-mono text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-950 px-2 py-0.5 rounded text-[11px]">/control/temp_threshold</span>
+            </div>
+            <div class="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800">
+              <span class="text-slate-500 dark:text-slate-400">DHT Poll Interval:</span>
+              <span class="font-mono text-slate-800 dark:text-slate-200">2000 ms (Pin 14)</span>
+            </div>
+            <div class="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800">
+              <span class="text-slate-500 dark:text-slate-400">PIR Sensor:</span>
+              <span class="font-mono text-slate-800 dark:text-slate-200">GPIO 27</span>
+            </div>
+            <div class="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800">
+              <span class="text-slate-500 dark:text-slate-400">Active Cutoff:</span>
+              <span id="specsCutoffVal" class="font-mono text-rose-600 dark:text-rose-400 font-bold">&gt;= 35.0 °C</span>
+            </div>
+            <div class="flex justify-between items-center py-2">
+              <span class="text-slate-500 dark:text-slate-400">Auth Method:</span>
+              <span class="font-semibold text-emerald-600 dark:text-emerald-400">Anonymous Token</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-4 p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400">
+          <p class="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-500"></i> Over-the-air threshold sync
+          </p>
+          Changes to the threshold slider sync to Firebase and update the ESP32 actuator trip point in real time.
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Event History Log Table -->
+    <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 shadow-sm dark:shadow-lg transition-all">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <i data-lucide="history" class="w-5 h-5 text-indigo-500 dark:text-indigo-400"></i> Event & Alert Audit Log
+          </h2>
+          <p class="text-xs text-slate-500 dark:text-slate-400">Chronological telemetry events, motion spikes, and threshold triggers</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="exportCsvBtn" class="px-3 py-1.5 text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg border border-slate-300 dark:border-slate-700 transition flex items-center gap-1.5">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i> Export CSV
+          </button>
+          <button id="clearLogsBtn" class="px-3 py-1.5 text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-rose-500 dark:text-rose-400 rounded-lg border border-slate-300 dark:border-slate-700 transition">
+            Clear Logs
+          </button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
+              <th class="py-3 px-4">Time</th>
+              <th class="py-3 px-4">Event Type</th>
+              <th class="py-3 px-4">Details</th>
+              <th class="py-3 px-4">Temperature</th>
+              <th class="py-3 px-4">Humidity</th>
+              <th class="py-3 px-4">Status</th>
+            </tr>
+          </thead>
+          <tbody id="eventLogsBody" class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono text-slate-700 dark:text-slate-300">
+            <tr>
+              <td colspan="6" class="py-6 text-center text-slate-400 dark:text-slate-500 font-sans">Awaiting telemetry stream from Firebase...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="mt-12 border-t border-slate-200 dark:border-slate-800/80 py-6 text-center text-xs text-slate-400 dark:text-slate-500">
+    Classroom IoT Monitoring Web Interface &bull; Direct Firebase Realtime Database Synced
+  </footer>
+
+  <!-- Application Logic -->
+  <script>
+    // --- 1. Default Configuration & State Management ---
+    const DEFAULT_CONFIG = (window.FIREBASE_LOCAL_CONFIG && window.FIREBASE_LOCAL_CONFIG.apiKey)
+      ? window.FIREBASE_LOCAL_CONFIG
+      : {
+          apiKey: "YOUR_FIREBASE_API_KEY",
+          databaseURL: "https://classroom-monitoring-sys-3a0b0-default-rtdb.firebaseio.com"
+        };
+
+    let audioAlertEnabled = true;
+    let audioContext = null;
+    let alarmInterval = null;
+    let eventLogList = [];
+    const MAX_CHART_POINTS = 30;
+
+    // Current High-Temperature Alert Threshold (Default 35.0 °C, loaded from localStorage or Firebase)
+    let currentThreshold = 35.0;
+    const storedThreshold = localStorage.getItem("esp32_temp_threshold");
+    if (storedThreshold && !isNaN(parseFloat(storedThreshold))) {
+      currentThreshold = parseFloat(storedThreshold);
+    }
+
+    // Cached last telemetry packet for real-time re-evaluation
+    let lastTelemetryData = {
+      temp: NaN,
+      hum: NaN,
+      isHighTemp: false,
+      isMotion: false,
+      lastMotionTimestamp: undefined
+    };
+
+    function getStoredConfig() {
+      const stored = localStorage.getItem("esp32_iot_config");
+      if (stored) {
+        try {
+          return JSON.parse(stored);
+        } catch(e) {}
+      }
+      return DEFAULT_CONFIG;
+    }
+
+    let currentConfig = getStoredConfig();
+
+    // Populate Settings Modal Inputs
+    document.getElementById('cfgApiKey').value = currentConfig.apiKey;
+    document.getElementById('cfgDbUrl').value = currentConfig.databaseURL;
+
+    // --- 2. Light / Dark Mode Toggle Functionality ---
+    function initTheme() {
+      const isDark = document.documentElement.classList.contains('dark');
+      updateThemeUI(isDark);
+    }
+
+    function toggleTheme() {
+      const isDark = document.documentElement.classList.toggle('dark');
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+      updateThemeUI(isDark);
+      applyChartTheme(isDark);
+    }
+
+    function updateThemeUI(isDark) {
+      const icon = document.getElementById('themeToggleIcon');
+      const text = document.getElementById('themeToggleText');
+      if (isDark) {
+        if (icon) icon.setAttribute('data-lucide', 'sun');
+        if (text) text.innerText = 'Light Mode';
+      } else {
+        if (icon) icon.setAttribute('data-lucide', 'moon');
+        if (text) text.innerText = 'Dark Mode';
+      }
+      lucide.createIcons();
+    }
+
+    document.getElementById('themeToggleBtn').addEventListener('click', toggleTheme);
+
+    // --- 3. Chart.js Setup & Adaptive Theme ---
+    const ctx = document.getElementById('realtimeChart').getContext('2d');
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: 'Temperature (°C)',
+            data: [],
+            borderColor: '#fb923c',
+            backgroundColor: 'rgba(251, 146, 60, 0.15)',
+            borderWidth: 2.5,
+            fill: true,
+            tension: 0.35,
+            yAxisID: 'y'
+          },
+          {
+            label: 'Humidity (%)',
+            data: [],
+            borderColor: '#38bdf8',
+            backgroundColor: 'rgba(56, 189, 248, 0.1)',
+            borderWidth: 2,
+            fill: false,
+            tension: 0.35,
+            yAxisID: 'y1'
+          },
+          {
+            label: 'Threshold (°C)',
+            data: [],
+            borderColor: '#f43f5e',
+            borderWidth: 1.5,
+            borderDash: [6, 4],
+            pointRadius: 0,
+            fill: false,
+            tension: 0,
+            yAxisID: 'y'
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 400 },
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#0f172a',
+            titleColor: '#f8fafc',
+            bodyColor: '#cbd5e1',
+            borderColor: '#334155',
+            borderWidth: 1
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: 'rgba(51, 65, 85, 0.3)' },
+            ticks: { color: '#64748b', font: { size: 10 } }
+          },
+          y: {
+            type: 'linear',
+            display: true,
+            position: 'left',
+            min: 0,
+            max: 55,
+            grid: { color: 'rgba(51, 65, 85, 0.3)' },
+            ticks: {
+              color: '#fb923c',
+              callback: function(value) { return value + ' °C'; }
+            }
+          },
+          y1: {
+            type: 'linear',
+            display: true,
+            position: 'right',
+            min: 0,
+            max: 100,
+            grid: { drawOnChartArea: false },
+            ticks: {
+              color: '#38bdf8',
+              callback: function(value) { return value + ' %'; }
+            }
+          }
+        }
+      }
+    });
+
+    function applyChartTheme(isDark) {
+      const gridColor = isDark ? 'rgba(51, 65, 85, 0.3)' : 'rgba(203, 213, 225, 0.6)';
+      const tickColor = isDark ? '#94a3b8' : '#64748b';
+
+      chart.options.scales.x.grid.color = gridColor;
+      chart.options.scales.x.ticks.color = tickColor;
+      chart.options.scales.y.grid.color = gridColor;
+
+      chart.options.plugins.tooltip.backgroundColor = isDark ? '#0f172a' : '#ffffff';
+      chart.options.plugins.tooltip.titleColor = isDark ? '#f8fafc' : '#0f172a';
+      chart.options.plugins.tooltip.bodyColor = isDark ? '#cbd5e1' : '#334155';
+      chart.options.plugins.tooltip.borderColor = isDark ? '#334155' : '#cbd5e1';
+
+      chart.update();
+    }
+
+    // --- 4. Dynamic Threshold Adjustment & Over-The-Air Sync ---
+    let thresholdDebounceTimer = null;
+
+    function updateThresholdDisplays(val) {
+      const formatted = parseFloat(val).toFixed(1);
+      
+      // Update Temperature Card displays
+      const cardEl = document.getElementById('cardThresholdVal');
+      if (cardEl) cardEl.innerText = `${formatted} °C`;
+
+      const inlineEl = document.getElementById('inlineThresholdDisplay');
+      if (inlineEl) inlineEl.innerText = `${formatted} °C`;
+
+      const inlineSlider = document.getElementById('inlineThresholdSlider');
+      if (inlineSlider && parseFloat(inlineSlider.value) !== parseFloat(val)) {
+        inlineSlider.value = val;
+      }
+
+      // Update Modal Settings
+      const modalEl = document.getElementById('thresholdValDisplay');
+      if (modalEl) modalEl.innerText = `${formatted} °C`;
+
+      const modalSlider = document.getElementById('thresholdSlider');
+      if (modalSlider && parseFloat(modalSlider.value) !== parseFloat(val)) {
+        modalSlider.value = val;
+      }
+
+      // Update specs, banners & chart legends
+      const specsEl = document.getElementById('specsCutoffVal');
+      if (specsEl) specsEl.innerText = `>= ${formatted} °C`;
+
+      const bannerThreshEl = document.getElementById('bannerThresholdVal');
+      if (bannerThreshEl) bannerThreshEl.innerText = formatted;
+
+      const chartLegend = document.getElementById('chartThresholdLegend');
+      if (chartLegend) chartLegend.innerText = formatted;
+
+      // Update threshold dataset on Chart.js so the cutoff line reflects the new value
+      if (chart.data.datasets[2]) {
+        chart.data.datasets[2].data = chart.data.datasets[2].data.map(() => parseFloat(val));
+        chart.update('none');
+      }
+    }
+
+    function setThreshold(val, syncToFirebase = true) {
+      val = Math.max(20.0, Math.min(60.0, parseFloat(val)));
+      currentThreshold = parseFloat(val.toFixed(1));
+      localStorage.setItem("esp32_temp_threshold", currentThreshold.toString());
+
+      updateThresholdDisplays(currentThreshold);
+
+      // Show sync badge status
+      const feedback = document.getElementById('thresholdSyncFeedback');
+      if (feedback) {
+        feedback.innerHTML = `<i data-lucide="loader" class="w-3 h-3 animate-spin"></i> Syncing...`;
+        feedback.className = "text-amber-500 font-medium flex items-center gap-1";
+        lucide.createIcons();
+      }
+
+      // Sync to Firebase RTDB at /control/temp_threshold
+      if (syncToFirebase) {
+        if (thresholdDebounceTimer) clearTimeout(thresholdDebounceTimer);
+        thresholdDebounceTimer = setTimeout(() => {
+          try {
+            if (firebase.apps.length > 0) {
+              firebase.database().ref('control/temp_threshold').set(currentThreshold)
+                .then(() => {
+                  if (feedback) {
+                    feedback.innerHTML = `<i data-lucide="check-circle-2" class="w-3 h-3 text-emerald-500"></i> Cloud & ESP32 Synced`;
+                    feedback.className = "text-emerald-500 font-medium flex items-center gap-1";
+                    lucide.createIcons();
+                  }
+                  addLogEntry("SYSTEM", `Threshold updated to ${currentThreshold.toFixed(1)} °C and pushed to Firebase`);
+                })
+                .catch(err => {
+                  if (feedback) {
+                    feedback.innerHTML = `<i data-lucide="alert-triangle" class="w-3 h-3 text-amber-500"></i> Local Only`;
+                    feedback.className = "text-amber-500 font-medium flex items-center gap-1";
+                    lucide.createIcons();
+                  }
+                  console.warn("Could not sync threshold to Firebase:", err.message);
+                });
+            } else {
+              if (feedback) {
+                feedback.innerHTML = `<i data-lucide="check" class="w-3 h-3"></i> Local Mode`;
+                feedback.className = "text-slate-400 font-medium flex items-center gap-1";
+                lucide.createIcons();
+              }
+            }
+          } catch(e) {}
+        }, 300);
+      } else {
+        if (feedback) {
+          feedback.innerHTML = `<i data-lucide="check" class="w-3 h-3 text-emerald-500"></i> Synced from Cloud`;
+          feedback.className = "text-emerald-500 font-medium flex items-center gap-1";
+          lucide.createIcons();
+        }
+      }
+
+      // Re-evaluate current temperature against the new threshold immediately
+      if (!isNaN(lastTelemetryData.temp)) {
+        const isHigh = lastTelemetryData.temp >= currentThreshold;
+        updateUI({
+          ...lastTelemetryData,
+          isHighTemp: isHigh
+        });
+      }
+    }
+
+    // Toggle Quick Slider on Temperature Card
+    document.getElementById('quickEditThresholdBtn')?.addEventListener('click', () => {
+      const container = document.getElementById('inlineThresholdContainer');
+      if (container) {
+        container.classList.toggle('hidden');
+        lucide.createIcons();
+      }
+    });
+
+    // Inline Slider & Stepper buttons
+    document.getElementById('inlineThresholdSlider')?.addEventListener('input', (e) => {
+      setThreshold(parseFloat(e.target.value), true);
+    });
+
+    document.getElementById('threshStepDownBtn')?.addEventListener('click', () => {
+      setThreshold(currentThreshold - 0.5, true);
+    });
+
+    document.getElementById('threshStepUpBtn')?.addEventListener('click', () => {
+      setThreshold(currentThreshold + 0.5, true);
+    });
+
+    // Settings Modal Slider
+    document.getElementById('thresholdSlider')?.addEventListener('input', (e) => {
+      setThreshold(parseFloat(e.target.value), true);
+    });
+
+    // --- 5. Web Audio Buzzer Simulator ---
+    function playBuzzerBeep() {
+      if (!audioAlertEnabled) return;
+      try {
+        if (!audioContext) {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioContext.state === 'suspended') {
+          audioContext.resume();
+        }
+        const osc = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(880, audioContext.currentTime); // 880 Hz beep
+        gain.gain.setValueAtTime(0.2, audioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.3);
+        osc.connect(gain);
+        gain.connect(audioContext.destination);
+        osc.start();
+        osc.stop(audioContext.currentTime + 0.3);
+      } catch (e) {
+        console.warn("Audio limitation:", e);
+      }
+    }
+
+    function startAlarmLoop() {
+      if (!alarmInterval) {
+        playBuzzerBeep();
+        alarmInterval = setInterval(playBuzzerBeep, 700);
+      }
+    }
+
+    function stopAlarmLoop() {
+      if (alarmInterval) {
+        clearInterval(alarmInterval);
+        alarmInterval = null;
+      }
+    }
+
+    // Audio Toggle Handler
+    const toggleAudioBtn = document.getElementById('toggleAudioBtn');
+    const audioIcon = document.getElementById('audioIcon');
+    const audioStatusText = document.getElementById('audioStatusText');
+
+    toggleAudioBtn.addEventListener('click', () => {
+      audioAlertEnabled = !audioAlertEnabled;
+      if (audioAlertEnabled) {
+        audioStatusText.innerText = "Buzzer: On";
+        toggleAudioBtn.classList.remove('opacity-50');
+        playConnectedBeep(); // Test chirp immediately confirms audio is active
+      } else {
+        audioStatusText.innerText = "Buzzer: Muted";
+        toggleAudioBtn.classList.add('opacity-50');
+        stopAlarmLoop();
+      }
+      lucide.createIcons();
+    });
+
+    // --- 6. Firebase Initialization & Live Telemetry Sync ---
+    let dbRef = null;
+    let controlRef = null;
+    let lastKnownMotion = false;
+    let lastKnownHighTemp = false;
+    let restPollingTimer = null;
+    let lastDataReceivedTime = null;
+
+    function setEngineStatus(type, colorClass) {
+      const badge = document.getElementById('engineStatusBadge');
+      if (badge) {
+        badge.innerText = type;
+        badge.className = `px-2 py-0.5 rounded font-mono font-medium ${colorClass}`;
+      }
+    }
+
+    function initFirebase(cfg) {
+      if (firebase.apps.length > 0) {
+        firebase.app().delete();
+      }
+
+      const updateDot = (color, text) => {
+        const dot = document.getElementById('cloudStatusDot');
+        const txt = document.getElementById('cloudStatusText');
+        if (dot) dot.className = `w-2.5 h-2.5 rounded-full ${color}`;
+        if (txt) txt.innerText = text;
+      };
+
+      updateDot('bg-amber-400 animate-ping', 'Connecting Firebase...');
+      setEngineStatus('Connecting...', 'bg-amber-500/10 text-amber-600 dark:text-amber-300 border border-amber-500/30');
+
+      try {
+        firebase.initializeApp(cfg);
+        const auth = firebase.auth();
+        const db = firebase.database();
+
+        // 1. Immediately attach WebSocket listeners
+        listenToSensorData(db);
+
+        // 2. Try anonymous sign-in in parallel
+        auth.signInAnonymously()
+          .then((userCredential) => {
+            updateDot('bg-emerald-500', 'Firebase Online');
+            addLogEntry("SYSTEM", "Anonymous Auth Granted (UID: " + userCredential.user.uid.substring(0, 6) + "...)");
+            const hintBanner = document.getElementById('authConfigHintBanner');
+            if (hintBanner) hintBanner.classList.add('hidden');
+          })
+          .catch((err) => {
+            if (err.code === 'auth/configuration-not-found' || err.message.includes('configuration-not-found')) {
+              console.warn("Firebase Anonymous Sign-In is not enabled in Firebase Console.");
+              addLogEntry("WARNING", "Anonymous Sign-In disabled in Firebase Console. Enable it under Authentication > Sign-in method.");
+              const hintBanner = document.getElementById('authConfigHintBanner');
+              if (hintBanner) hintBanner.classList.remove('hidden');
+            } else {
+              console.warn("Auth notice:", err.message);
+              addLogEntry("WARNING", "Auth notice: " + err.message);
+            }
+          });
+
+        // 3. Start automatic REST API polling fallback
+        startRestPolling(cfg.databaseURL);
+
+      } catch (err) {
+        console.error("Firebase init error:", err);
+        updateDot('bg-rose-500', 'Config Error');
+        addLogEntry("ERROR", "Init Error: " + err.message);
+      }
+    }
+
+    function listenToSensorData(db) {
+      try {
+        // Sensor telemetry listener
+        dbRef = db.ref('sensor');
+        dbRef.on('value', (snapshot) => {
+          const val = snapshot.val();
+          handleIncomingSensorPayload(val, "WebSocket (Realtime)");
+        }, (err) => {
+          console.error("Database listener error:", err);
+          addLogEntry("ERROR", "RTDB Read Permission Denied: " + err.message);
+          setEngineStatus('WebSocket Blocked', 'bg-rose-500/10 text-rose-500 dark:text-rose-300 border border-rose-500/30');
+        });
+
+        // Bidirectional Control threshold listener (Reads if ESP32 or another client updated it)
+        controlRef = db.ref('control/temp_threshold');
+        controlRef.on('value', (snapshot) => {
+          const cloudVal = snapshot.val();
+          if (cloudVal !== null && !isNaN(cloudVal)) {
+            const parsed = parseFloat(cloudVal);
+            if (parsed >= 20.0 && parsed <= 60.0 && Math.abs(parsed - currentThreshold) >= 0.1) {
+              setThreshold(parsed, false); // Update locally without re-pushing
+              addLogEntry("SYSTEM", `Threshold updated from Cloud to ${parsed.toFixed(1)} °C`);
+            }
+          }
+        });
+
+        // Fast-path listener for ESP32 boot & reconnect timestamp
+        db.ref('sensor/last_boot_time').on('value', (snapshot) => {
+          const val = snapshot.val();
+          if (val && lastKnownBootTime && val !== lastKnownBootTime) {
+            lastKnownBootTime = val;
+            isDeviceConnected = true;
+            showDeviceConnectedBanner("ESP32 Classroom Node Connected / Rebooted!");
+            addLogEntry("SYSTEM", "ESP32 sent fresh connection heartbeat to Firebase.");
+          } else if (val && !lastKnownBootTime) {
+            lastKnownBootTime = val;
+          }
+        });
+      } catch (e) {
+        console.error("Listener attachment failed:", e);
+      }
+    }
+
+    // Direct REST API Fallback
+    function startRestPolling(dbUrl) {
+      if (restPollingTimer) clearInterval(restPollingTimer);
+
+      const cleanUrl = dbUrl.replace(/\/+$/, "");
+      const pollEndpoint = `${cleanUrl}/sensor.json`;
+      const localProxyEndpoint = '/api/sensor';
+
+      const executePoll = async () => {
+        try {
+          let res = await fetch(pollEndpoint);
+          if (res.ok) {
+            const data = await res.json();
+            handleIncomingSensorPayload(data, "REST Polling (Direct)");
+            return;
+          }
+        } catch (e) {
+          try {
+            let proxyRes = await fetch(localProxyEndpoint);
+            if (proxyRes.ok) {
+              const data = await proxyRes.json();
+              handleIncomingSensorPayload(data, "REST Polling (Local Proxy)");
+              return;
+            }
+          } catch (proxyErr) {}
+        }
+      };
+
+      executePoll();
+      restPollingTimer = setInterval(executePoll, 2500);
+    }
+
+    // --- 7. Device Connection Toast Banner & Audio Beep ---
+    let isDeviceConnected = false;
+    let lastKnownBootTime = null;
+    let deviceBannerTimer = null;
+
+    // Proactively unlock browser AudioContext on any user interaction
+    function ensureAudioUnlocked() {
+      try {
+        if (!audioContext) {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioContext && audioContext.state === 'suspended') {
+          audioContext.resume();
+        }
+      } catch(e) {}
+    }
+    ['click', 'touchstart', 'keydown', 'mousedown'].forEach(evt => {
+      window.addEventListener(evt, ensureAudioUnlocked, { passive: true });
+    });
+
+    // Audible Hardware-Style Connection Beep (Ascending Dual Beep: 880Hz -> 1320Hz)
+    function playConnectedBeep() {
+      if (!audioAlertEnabled) return;
+
+      const triggerBeepSound = () => {
+        try {
+          const ctx = audioContext;
+          if (!ctx) return;
+          const t = ctx.currentTime;
+
+          // Beep 1: 880 Hz (A5), crisp triangle wave
+          const osc1 = ctx.createOscillator();
+          const gain1 = ctx.createGain();
+          osc1.type = 'triangle';
+          osc1.frequency.setValueAtTime(880, t);
+          gain1.gain.setValueAtTime(0.38, t);
+          gain1.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+          osc1.connect(gain1);
+          gain1.connect(ctx.destination);
+          osc1.start(t);
+          osc1.stop(t + 0.12);
+
+          // Beep 2: 1320 Hz (E6), higher pitch confirmation chime
+          const osc2 = ctx.createOscillator();
+          const gain2 = ctx.createGain();
+          osc2.type = 'triangle';
+          osc2.frequency.setValueAtTime(1320, t + 0.14);
+          gain2.gain.setValueAtTime(0.38, t + 0.14);
+          gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.38);
+          osc2.connect(gain2);
+          gain2.connect(ctx.destination);
+          osc2.start(t + 0.14);
+          osc2.stop(t + 0.38);
+        } catch (e) {
+          console.warn("Audio playback error:", e);
+        }
+      };
+
+      try {
+        if (!audioContext) {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioContext.state === 'suspended') {
+          audioContext.resume().then(() => {
+            triggerBeepSound();
+          }).catch(err => {
+            console.warn("Autoplay policy blocked audio:", err);
+          });
+        } else {
+          triggerBeepSound();
+        }
+      } catch (e) {
+        console.warn("AudioContext error:", e);
+      }
+    }
+
+    function showDeviceConnectedBanner(customMsg = "ESP32 Classroom Node is Online") {
+      const banner = document.getElementById('deviceConnectedBanner');
+      const textEl = document.getElementById('deviceConnectedText');
+      if (textEl) textEl.innerText = customMsg;
+      if (!banner) return;
+
+      banner.classList.remove('translate-y-[-150%]', 'opacity-0');
+      banner.classList.add('translate-y-0', 'opacity-100');
+      lucide.createIcons();
+      playConnectedBeep();
+
+      if (deviceBannerTimer) clearTimeout(deviceBannerTimer);
+      deviceBannerTimer = setTimeout(() => {
+        hideDeviceConnectedBanner();
+      }, 5000); // Display for 5 seconds
+    }
+
+    function hideDeviceConnectedBanner() {
+      const banner = document.getElementById('deviceConnectedBanner');
+      if (banner) {
+        banner.classList.remove('translate-y-0', 'opacity-100');
+        banner.classList.add('translate-y-[-150%]', 'opacity-0');
+      }
+    }
+
+    document.getElementById('closeDeviceBannerBtn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      hideDeviceConnectedBanner();
+    });
+
+    document.getElementById('deviceConnectedBanner')?.addEventListener('click', () => {
+      playConnectedBeep();
+    });
+
+    // Heartbeat monitor: if no telemetry received for 6.5 seconds, mark as offline/idle
+    setInterval(() => {
+      if (isDeviceConnected && lastDataReceivedTime && (Date.now() - lastDataReceivedTime > 6500)) {
+        isDeviceConnected = false;
+        const txt = document.getElementById('cloudStatusText');
+        const dot = document.getElementById('cloudStatusDot');
+        if (txt) txt.innerText = "Device Idle / Offline";
+        if (dot) dot.className = "w-2.5 h-2.5 rounded-full bg-slate-400 dark:bg-slate-500";
+      }
+    }, 2000);
+
+    function handleIncomingSensorPayload(val, sourceName) {
+      const payloadDisplay = document.getElementById('rawPayloadDisplay');
+      const lastPacketBadge = document.getElementById('lastPacketTime');
+      const nowStr = new Date().toLocaleTimeString();
+
+      if (lastPacketBadge) lastPacketBadge.innerText = nowStr;
+      lastDataReceivedTime = Date.now();
+
+      setEngineStatus(sourceName, 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 border border-emerald-500/30');
+      const dot = document.getElementById('cloudStatusDot');
+      const txt = document.getElementById('cloudStatusText');
+      if (dot) dot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500";
+      if (txt) txt.innerText = "Firebase Online";
+
+      if (val === null || val === undefined) {
+        if (payloadDisplay) {
+          payloadDisplay.innerText = "null (Node /sensor has not been written by ESP32 yet)";
+          payloadDisplay.className = "bg-slate-100 dark:bg-slate-950 text-amber-600 dark:text-amber-300 px-2.5 py-1 rounded border border-slate-300 dark:border-slate-800 max-w-xs sm:max-w-md truncate block font-mono text-[11px]";
+        }
+        return;
+      }
+
+      // Check if this is an initial connect, reconnection after idle, or board reboot
+      const bootTime = val.last_boot_time || null;
+      const isFreshBoot = Boolean(bootTime && lastKnownBootTime && (bootTime !== lastKnownBootTime));
+      const isFirstOrReconnect = !isDeviceConnected;
+
+      if (isFirstOrReconnect || isFreshBoot) {
+        isDeviceConnected = true;
+        lastKnownBootTime = bootTime || lastKnownBootTime;
+        const msg = isFreshBoot 
+          ? "ESP32 Classroom Node Rebooted & Connected!" 
+          : "ESP32 IoT Node Connected to Firebase!";
+        showDeviceConnectedBanner(msg);
+        addLogEntry("SYSTEM", msg + " (Realtime telemetry stream active)");
+      } else if (bootTime) {
+        lastKnownBootTime = bootTime;
+      }
+
+      if (payloadDisplay) {
+        payloadDisplay.innerText = JSON.stringify(val);
+        payloadDisplay.className = "bg-slate-100 dark:bg-slate-950 text-indigo-700 dark:text-indigo-300 px-2.5 py-1 rounded border border-slate-300 dark:border-slate-800 max-w-xs sm:max-w-md truncate block font-mono text-[11px]";
+      }
+
+      const temp = typeof val.temperature === 'number' ? val.temperature : parseFloat(val.temperature);
+      const hum = typeof val.humidity === 'number' ? val.humidity : parseFloat(val.humidity);
+      // High temp is evaluated against either ESP32's flag or client-side dynamic threshold
+      const isHighTemp = Boolean(val.high_temp_alert) || (!isNaN(temp) && temp >= currentThreshold);
+      const isMotion = Boolean(val.motion_detected);
+      const lastMotionTimestamp = val.last_motion_timestamp;
+
+      lastTelemetryData = { temp, hum, isHighTemp, isMotion, lastMotionTimestamp };
+      updateUI(lastTelemetryData);
+    }
+
+    // Direct Read Test button
+    document.getElementById('testDirectFetchBtn')?.addEventListener('click', async () => {
+      const cleanUrl = currentConfig.databaseURL.replace(/\/+$/, "");
+      const payloadDisplay = document.getElementById('rawPayloadDisplay');
+      payloadDisplay.innerText = "Testing direct fetch...";
+
+      try {
+        let res = await fetch(`${cleanUrl}/sensor.json`);
+        let source = "Direct HTTP";
+        if (!res.ok) {
+          res = await fetch('/api/sensor');
+          source = "Local Proxy";
+        }
+
+        const statusText = `HTTP ${res.status} ${res.statusText}`;
+        if (res.ok) {
+          const json = await res.json();
+          payloadDisplay.innerText = `[${statusText} via ${source}] ` + JSON.stringify(json);
+          addLogEntry("SYSTEM", `Read Successful via ${source}: ${JSON.stringify(json)}`);
+          handleIncomingSensorPayload(json, `Manual Test (${source})`);
+        } else {
+          payloadDisplay.innerText = `[${statusText}] Read Error`;
+          addLogEntry("ERROR", `Read Failed with ${statusText}`);
+        }
+      } catch (err) {
+        try {
+          const proxyRes = await fetch('/api/sensor');
+          if (proxyRes.ok) {
+            const json = await proxyRes.json();
+            payloadDisplay.innerText = `[HTTP 200 via Local Proxy] ` + JSON.stringify(json);
+            addLogEntry("SYSTEM", `Read Successful via Local Proxy: ${JSON.stringify(json)}`);
+            handleIncomingSensorPayload(json, "Manual Test (Local Proxy)");
+            return;
+          }
+        } catch (e) {}
+
+        payloadDisplay.innerText = "Fetch Error: " + err.message;
+        addLogEntry("ERROR", `Direct Fetch Error: ${err.message}`);
+      }
+    });
+
+    // --- 8. UI Updates on Telemetry Receive ---
+    let minTempRecorded = Infinity;
+    let maxTempRecorded = -Infinity;
+    let humSamplesSum = 0;
+    let humSamplesCount = 0;
+    let totalMotionCount = 0;
+
+    function updateUI(data) {
+      const { temp, hum, isHighTemp, isMotion, lastMotionTimestamp } = data;
+      const nowStr = new Date().toLocaleTimeString();
+
+      // Peak Statistics Tracking
+      if (!isNaN(temp)) {
+        if (temp < minTempRecorded) {
+          minTempRecorded = temp;
+          const el = document.getElementById('statMinTemp');
+          if (el) el.innerText = temp.toFixed(1) + ' °C';
+        }
+        if (temp > maxTempRecorded) {
+          maxTempRecorded = temp;
+          const el = document.getElementById('statMaxTemp');
+          if (el) el.innerText = temp.toFixed(1) + ' °C';
+        }
+      }
+
+      if (!isNaN(hum)) {
+        humSamplesSum += hum;
+        humSamplesCount++;
+        const el = document.getElementById('statAvgHum');
+        if (el) el.innerText = (humSamplesSum / humSamplesCount).toFixed(1) + ' %';
+      }
+
+      // Temperature Card Rendering
+      if (!isNaN(temp)) {
+        document.getElementById('tempValue').innerText = temp.toFixed(1);
+        document.getElementById('tempFahrenheit').innerText = ((temp * 9/5) + 32).toFixed(1) + ' °F';
+        
+        const pct = Math.min(Math.max((temp / 50) * 100, 0), 100);
+        document.getElementById('tempProgressBar').style.width = pct + '%';
+
+        const alertBadge = document.getElementById('tempAlertBadge');
+        if (temp >= currentThreshold || isHighTemp) {
+          alertBadge.innerText = `HIGH (>=${currentThreshold.toFixed(1)}°C)`;
+          alertBadge.className = 'font-bold text-rose-500 dark:text-rose-400 animate-pulse';
+        } else {
+          alertBadge.innerText = 'Normal';
+          alertBadge.className = 'font-medium text-emerald-600 dark:text-emerald-400';
+        }
+      }
+
+      // Humidity Card Rendering
+      if (!isNaN(hum)) {
+        document.getElementById('humidityValue').innerText = hum.toFixed(1);
+        const humPct = Math.min(Math.max(hum, 0), 100);
+        document.getElementById('humidityProgressBar').style.width = humPct + '%';
+
+        const comfort = document.getElementById('humidityComfortText');
+        if (hum < 30) {
+          comfort.innerText = 'Dry';
+          comfort.className = 'font-medium text-amber-500';
+        } else if (hum <= 60) {
+          comfort.innerText = 'Comfortable';
+          comfort.className = 'font-medium text-emerald-600 dark:text-emerald-400';
+        } else {
+          comfort.innerText = 'Humid';
+          comfort.className = 'font-medium text-sky-600 dark:text-sky-400';
+        }
+      }
+
+      // High Temperature Alert & Banner Logic
+      const highTempBanner = document.getElementById('highTempBanner');
+      const bannerTempDisplay = document.getElementById('bannerTempDisplay');
+      
+      const redLedLight = document.getElementById('redLedLight');
+      const redLedLabel = document.getElementById('redLedLabel');
+      const greenLedLight = document.getElementById('greenLedLight');
+      const greenLedLabel = document.getElementById('greenLedLabel');
+      const buzzerLight = document.getElementById('buzzerLight');
+      const buzzerLabel = document.getElementById('buzzerLabel');
+
+      const triggerAlert = isHighTemp || (!isNaN(temp) && temp >= currentThreshold);
+
+      if (triggerAlert) {
+        highTempBanner.classList.remove('hidden');
+        bannerTempDisplay.innerText = `${temp ? temp.toFixed(1) : currentThreshold.toFixed(1)} °C`;
+
+        // Physical Pin Status: Temp >= threshold -> Green OFF, Red HIGH, Buzzer HIGH
+        greenLedLight.className = "w-3.5 h-3.5 rounded-full bg-slate-300 dark:bg-slate-700 transition-all";
+        greenLedLabel.className = "text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400";
+        greenLedLabel.innerText = "OFF";
+
+        redLedLight.className = "w-3.5 h-3.5 rounded-full bg-rose-500 led-glow-red animate-pulse transition-all";
+        redLedLabel.className = "text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-rose-500/20 text-rose-600 dark:text-rose-300";
+        redLedLabel.innerText = "ACTIVE (ALERT)";
+
+        buzzerLight.className = "w-3.5 h-3.5 rounded-full bg-amber-400 led-glow-amber animate-ping transition-all";
+        buzzerLabel.className = "text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-600 dark:text-amber-300";
+        buzzerLabel.innerText = "ALARM SOUNDING";
+
+        startAlarmLoop();
+
+        if (!lastKnownHighTemp) {
+          addLogEntry("ALERT", `High Temperature Alert Triggered! Temperature: ${temp.toFixed(1)}°C (Threshold: ${currentThreshold.toFixed(1)}°C)`, temp, hum, "CRITICAL");
+        }
+        lastKnownHighTemp = true;
+      } else {
+        highTempBanner.classList.add('hidden');
+        
+        // Normal State: Green HIGH, Red LOW, Buzzer LOW
+        greenLedLight.className = "w-3.5 h-3.5 rounded-full bg-emerald-500 led-glow-green transition-all";
+        greenLedLabel.className = "text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-300";
+        greenLedLabel.innerText = "ACTIVE";
+
+        redLedLight.className = "w-3.5 h-3.5 rounded-full bg-slate-300 dark:bg-slate-700 transition-all";
+        redLedLabel.className = "text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400";
+        redLedLabel.innerText = "OFF";
+
+        buzzerLight.className = "w-3.5 h-3.5 rounded-full bg-slate-300 dark:bg-slate-700 transition-all";
+        buzzerLabel.className = "text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400";
+        buzzerLabel.innerText = "SILENT";
+
+        stopAlarmLoop();
+
+        if (lastKnownHighTemp) {
+          addLogEntry("INFO", `Temperature restored to safe range: ${temp.toFixed(1)}°C`, temp, hum, "NORMAL");
+        }
+        lastKnownHighTemp = false;
+      }
+
+      // Motion Sensor State
+      const motionDot = document.getElementById('motionIndicatorDot');
+      const motionText = document.getElementById('motionStatusText');
+      const motionIconBox = document.getElementById('motionIconBox');
+      const lastMotionTimeElem = document.getElementById('lastMotionTime');
+
+      if (isMotion) {
+        motionDot.className = "w-4 h-4 rounded-full bg-amber-400 motion-pulse";
+        motionText.innerText = "Motion Detected!";
+        motionText.className = "text-2xl font-bold text-amber-500 dark:text-amber-400 animate-pulse";
+        motionIconBox.className = "p-2 rounded-lg bg-amber-500/20 text-amber-500 dark:text-amber-400";
+
+        if (!lastKnownMotion) {
+          totalMotionCount++;
+          const motionCountEl = document.getElementById('statMotionCount');
+          if (motionCountEl) motionCountEl.innerText = `${totalMotionCount} logged`;
+
+          const timestampFormatted = lastMotionTimestamp ? new Date(lastMotionTimestamp).toLocaleTimeString() : nowStr;
+          lastMotionTimeElem.innerText = timestampFormatted;
+          addLogEntry("MOTION", "Motion Detected by PIR (Pin 27)", temp, hum, "WARNING");
+        }
+        lastKnownMotion = true;
+      } else {
+        motionDot.className = "w-4 h-4 rounded-full bg-slate-400 dark:bg-slate-600";
+        motionText.innerText = "No Motion";
+        motionText.className = "text-2xl font-bold text-slate-700 dark:text-slate-300";
+        motionIconBox.className = "p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400";
+
+        if (lastMotionTimestamp) {
+          lastMotionTimeElem.innerText = new Date(lastMotionTimestamp).toLocaleTimeString();
+        }
+        lastKnownMotion = false;
+      }
+
+      // Chart Update
+      if (!isNaN(temp) && !isNaN(hum)) {
+        appendChartPoint(nowStr, temp, hum);
+      }
+    }
+
+    // --- 9. Chart Append & Clean Up ---
+    function appendChartPoint(label, temp, hum) {
+      if (chart.data.labels.length >= MAX_CHART_POINTS) {
+        chart.data.labels.shift();
+        chart.data.datasets[0].data.shift();
+        chart.data.datasets[1].data.shift();
+        chart.data.datasets[2].data.shift();
+      }
+
+      chart.data.labels.push(label);
+      chart.data.datasets[0].data.push(temp);
+      chart.data.datasets[1].data.push(hum);
+      chart.data.datasets[2].data.push(currentThreshold);
+      chart.update();
+
+      document.getElementById('chartPointsCount').innerText = `${chart.data.labels.length} samples recorded`;
+    }
+
+    document.getElementById('clearChartBtn').addEventListener('click', () => {
+      chart.data.labels = [];
+      chart.data.datasets[0].data = [];
+      chart.data.datasets[1].data = [];
+      chart.data.datasets[2].data = [];
+      chart.update();
+      document.getElementById('chartPointsCount').innerText = `0 samples recorded`;
+    });
+
+    // --- 10. Event Log Management ---
+    function addLogEntry(type, details, temp = "--", hum = "--", status = "INFO") {
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString();
+
+      const entry = {
+        time: timeStr,
+        type,
+        details,
+        temp: temp !== "--" && !isNaN(temp) ? `${parseFloat(temp).toFixed(1)} °C` : "--",
+        hum: hum !== "--" && !isNaN(hum) ? `${parseFloat(hum).toFixed(1)} %` : "--",
+        status
+      };
+
+      eventLogList.unshift(entry);
+      if (eventLogList.length > 50) eventLogList.pop();
+
+      renderEventLogs();
+    }
+
+    function renderEventLogs() {
+      const tbody = document.getElementById('eventLogsBody');
+      if (eventLogList.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-slate-400 dark:text-slate-500 font-sans">No events logged yet.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = eventLogList.map(item => {
+        let statusBadge = '';
+        if (item.status === 'CRITICAL') {
+          statusBadge = '<span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-600 dark:text-rose-300 font-bold border border-rose-500/30">CRITICAL</span>';
+        } else if (item.status === 'WARNING') {
+          statusBadge = '<span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-600 dark:text-amber-300 font-bold border border-amber-500/30">ALERT</span>';
+        } else if (item.status === 'NORMAL') {
+          statusBadge = '<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 font-bold border border-emerald-500/30">RESTORED</span>';
+        } else {
+          statusBadge = '<span class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-medium">INFO</span>';
+        }
+
+        let typeBadge = '';
+        if (item.type === 'ALERT') {
+          typeBadge = '<span class="text-rose-500 dark:text-rose-400 font-bold flex items-center gap-1"><i data-lucide="flame" class="w-3.5 h-3.5"></i> High Temp</span>';
+        } else if (item.type === 'MOTION') {
+          typeBadge = '<span class="text-amber-500 dark:text-amber-400 font-bold flex items-center gap-1"><i data-lucide="footprints" class="w-3.5 h-3.5"></i> Motion</span>';
+        } else {
+          typeBadge = `<span class="text-indigo-600 dark:text-indigo-400 font-semibold">${item.type}</span>`;
+        }
+
+        return `
+          <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+            <td class="py-2.5 px-4 text-slate-500 dark:text-slate-400">${item.time}</td>
+            <td class="py-2.5 px-4">${typeBadge}</td>
+            <td class="py-2.5 px-4 text-slate-800 dark:text-slate-200">${item.details}</td>
+            <td class="py-2.5 px-4 text-orange-600 dark:text-orange-300 font-semibold">${item.temp}</td>
+            <td class="py-2.5 px-4 text-sky-600 dark:text-sky-300 font-semibold">${item.hum}</td>
+            <td class="py-2.5 px-4">${statusBadge}</td>
+          </tr>
+        `;
+      }).join('');
+
+      lucide.createIcons();
+    }
+
+    document.getElementById('clearLogsBtn').addEventListener('click', () => {
+      eventLogList = [];
+      renderEventLogs();
+    });
+
+    document.getElementById('exportCsvBtn').addEventListener('click', () => {
+      if (eventLogList.length === 0) {
+        alert("No logs to export!");
+        return;
+      }
+      let csv = "Time,Type,Details,Temperature,Humidity,Status\n";
+      eventLogList.forEach(row => {
+        csv += `"${row.time}","${row.type}","${row.details.replace(/"/g, '""')}","${row.temp}","${row.hum}","${row.status}"\n`;
+      });
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `esp32_iot_logs_${new Date().toISOString().slice(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+
+    // --- 11. Config Modal Handlers ---
+    const configModal = document.getElementById('configModal');
+    document.getElementById('configToggleBtn').addEventListener('click', () => {
+      configModal.classList.toggle('hidden');
+    });
+    document.getElementById('closeConfigBtn').addEventListener('click', () => {
+      configModal.classList.add('hidden');
+    });
+
+    document.getElementById('saveConfigBtn').addEventListener('click', () => {
+      const apiKey = document.getElementById('cfgApiKey').value.trim();
+      const databaseURL = document.getElementById('cfgDbUrl').value.trim();
+
+      if (!apiKey || !databaseURL) {
+        alert("Please provide both API Key and Database URL.");
+        return;
+      }
+
+      currentConfig = { apiKey, databaseURL };
+      localStorage.setItem("esp32_iot_config", JSON.stringify(currentConfig));
+      configModal.classList.add('hidden');
+      initFirebase(currentConfig);
+    });
+
+    // --- 12. Demo / Simulation Mode ---
+    let demoInterval = null;
+    let demoStep = 0;
+    const demoBtn = document.getElementById('demoBtn');
+    const demoBtnText = document.getElementById('demoBtnText');
+
+    demoBtn.addEventListener('click', () => {
+      if (demoInterval) {
+        clearInterval(demoInterval);
+        demoInterval = null;
+        demoBtnText.innerText = "Demo Mode";
+        demoBtn.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white dark:bg-slate-800 text-cyan-600 dark:text-cyan-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition border border-cyan-500/40 dark:border-cyan-800/60 shadow-sm";
+        addLogEntry("INFO", "Demo simulation stopped.");
+      } else {
+        demoBtnText.innerText = "Stop Demo";
+        demoBtn.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-cyan-600/30 text-cyan-700 dark:text-cyan-200 border border-cyan-400 animate-pulse shadow-sm";
+        addLogEntry("INFO", "Demo simulation started (Generating simulated ESP32 sensor stream)...");
+        showDeviceConnectedBanner("Demo Mode: Simulated ESP32 Connected!");
+
+        demoInterval = setInterval(() => {
+          demoStep++;
+          const cycle = demoStep % 10;
+          let simTemp;
+
+          // Oscillate around threshold to demonstrate dynamic alert response
+          if (cycle >= 5 && cycle <= 7) {
+            simTemp = currentThreshold + 1.2 + Math.random() * 2.0; // Trigger alarm above threshold
+          } else {
+            simTemp = currentThreshold - 4.0 + Math.random() * 2.0; // Normal below threshold
+          }
+
+          const simHum = 45 + Math.random() * 30;
+          const simMotion = cycle === 2 || cycle === 6;
+          const isHigh = simTemp >= currentThreshold;
+
+          updateUI({
+            temp: simTemp,
+            hum: simHum,
+            isHighTemp: isHigh,
+            isMotion: simMotion,
+            lastMotionTimestamp: simMotion ? Date.now() : undefined
+          });
+        }, 2000);
+      }
+      lucide.createIcons();
+    });
+
+    // --- 13. Initialize on Page Load ---
+    window.addEventListener('DOMContentLoaded', () => {
+      initTheme();
+      updateThresholdDisplays(currentThreshold);
+      initFirebase(currentConfig);
+      lucide.createIcons();
+    });
+  </script>
+</body>
+</html>

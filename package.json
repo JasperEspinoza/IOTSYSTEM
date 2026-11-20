@@ -1,0 +1,22 @@
+{
+  "name": "esp32-iot-system-dashboard",
+  "version": "1.0.0",
+  "description": "ESP32 Classroom IoT Environmental & Security Monitoring Web Dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "deploy:firebase": "firebase deploy --only hosting",
+    "deploy:vercel": "vercel --prod"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "esp32",
+    "iot",
+    "firebase",
+    "dashboard"
+  ],
+  "author": "",
+  "license": "ISC"
+}

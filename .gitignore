@@ -1,0 +1,14 @@
+node_modules/
+.firebase/
+.env
+*.log
+.DS_Store
+Thumbs.db
+
+# Private credentials & local configurations
+config.local.js
+
+# ESP32 firmware & hardware test sketches (kept locally)
+esp32_iot_system/
+*.ino
+testing
